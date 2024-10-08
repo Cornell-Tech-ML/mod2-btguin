@@ -16,7 +16,6 @@ from .tensor_functions import (
     EQ,
     LT,
     Add,
-    All,
     Copy,
     Exp,
     Inv,
@@ -95,9 +94,11 @@ class Tensor:
         self.f = backend
 
     def requires_grad_(self, x: bool) -> None:
+        """Sets the tensor to require gradients for backpropagation."""
         self.history = History()
 
     def requires_grad(self) -> bool:
+        """Returns True if the tensor requires gradients, False otherwise."""
         return self.history is not None
 
     def to_numpy(self) -> npt.NDArray[np.float64]:
@@ -194,6 +195,19 @@ class Tensor:
         # END CODE CHANGE (2021)
 
     def zeros(self, shape: Optional[UserShape] = None) -> Tensor:
+        """Creates a tensor filled with zeros.
+
+        Args:
+        ----
+            shape (Optional[UserShape]): The shape of the tensor to create.
+                                          If None, a tensor with the current object's shape is created.
+
+        Returns:
+        -------
+            Tensor: A tensor filled with zeros of the specified shape.
+
+        """
+
         def zero(shape: UserShape) -> Tensor:
             return Tensor.make(
                 [0.0] * int(operators.prod(shape)), shape, backend=self.backend
@@ -239,14 +253,17 @@ class Tensor:
         return self.history is not None and self.history.last_fn is None
 
     def is_constant(self) -> bool:
+        """Returns True if this tensor is a constant (no history)."""
         return self.history is None
 
     @property
     def parents(self) -> Iterable[Variable]:
+        """Returns the parent variables of this tensor."""
         assert self.history is not None
         return self.history.inputs
 
     def chain_rule(self, d_output: Any) -> Iterable[Tuple[Variable, Any]]:
+        """Applies the chain rule to compute gradients for this tensor's inputs."""
         h = self.history
         assert h is not None
         assert h.last_fn is not None
@@ -260,15 +277,18 @@ class Tensor:
         ]
 
     def backward(self, grad_output: Optional[Tensor] = None) -> None:
+        """Computes the gradient of the current tensor w.r.t. graph leaves."""
         if grad_output is None:
             assert self.shape == (1,), "Must provide grad_output if non-scalar"
             grad_output = Tensor.make([1.0], (1,), backend=self.backend)
         backpropagate(self, grad_output)
 
     def __truediv__(self, b: TensorLike) -> Tensor:
+        """Element-wise true division with broadcasting."""
         return Mul.apply(self, Inv.apply(self._ensure_tensor(b)))
 
     def __rtruediv__(self, b: TensorLike) -> Tensor:
+        """Reverse element-wise true division with broadcasting."""
         return Mul.apply(self._ensure_tensor(b), Inv.apply(self))
 
     def __matmul__(self, b: Tensor) -> Tensor:
@@ -285,3 +305,107 @@ class Tensor:
 
     # Functions
     # TODO: Implement for Task 2.3.
+
+    @property
+    def size(self) -> int:
+        """Returns the total number of elements in the tensor."""
+        return int(operators.prod(self.shape))
+
+    @property
+    def dims(self) -> int:
+        """Returns the number of dimensions in the tensor."""
+        return len(self.shape)
+
+    def __add__(self, b: TensorLike) -> Tensor:
+        """Element-wise addition with broadcasting."""
+        return Add.apply(self, self._ensure_tensor(b))
+
+    def __radd__(self, b: TensorLike) -> Tensor:
+        """Reverse element-wise addition with broadcasting."""
+        return Add.apply(self._ensure_tensor(b), self)
+
+    def __sub__(self, b: TensorLike) -> Tensor:
+        """Element-wise subtraction with broadcasting."""
+        return Add.apply(self, -self._ensure_tensor(b))
+
+    def __rsub__(self, b: TensorLike) -> Tensor:
+        """Reverse element-wise subtraction with broadcasting."""
+        return Add.apply(self._ensure_tensor(b), -self)
+
+    def __mul__(self, b: TensorLike) -> Tensor:
+        """Element-wise multiplication with broadcasting."""
+        return Mul.apply(self, self._ensure_tensor(b))
+
+    def __rmul__(self, b: TensorLike) -> Tensor:
+        """Reverse element-wise multiplication with broadcasting."""
+        return Mul.apply(self._ensure_tensor(b), self)
+
+    def __neg__(self) -> Tensor:
+        """Element-wise negation."""
+        return Neg.apply(self)
+
+    def __lt__(self, b: TensorLike) -> Tensor:
+        """Element-wise less than comparison."""
+        return LT.apply(self, self._ensure_tensor(b))
+
+    def __gt__(self, b: TensorLike) -> Tensor:
+        """Element-wise greater than comparison."""
+        return LT.apply(self._ensure_tensor(b), self)
+
+    def __eq__(self, b: TensorLike) -> Tensor:
+        """Element-wise equality comparison."""
+        return EQ.apply(self, self._ensure_tensor(b))
+
+    def relu(self) -> Tensor:
+        """Element-wise rectified linear unit."""
+        return ReLU.apply(self)
+
+    def sigmoid(self) -> Tensor:
+        """Element-wise sigmoid function."""
+        return Sigmoid.apply(self)
+
+    def log(self) -> Tensor:
+        """Element-wise natural logarithm."""
+        return Log.apply(self)
+
+    def exp(self) -> Tensor:
+        """Element-wise exponential function."""
+        return Exp.apply(self)
+
+    def sum(self, dim: Optional[int] = None) -> Tensor:
+        """Sum of tensor elements over a given dimension."""
+        return Sum.apply(self, dim)
+
+    def mean(self, dim: Optional[int] = None) -> Tensor:
+        """Mean of tensor elements over a given dimension."""
+        sum_tensor = self.sum(dim=dim)
+        if dim is None:
+            denom = self.size
+        else:
+            denom = self.shape[dim]
+        return sum_tensor / denom
+
+    def permute(self, *order: int) -> Tensor:
+        """Permute tensor dimensions."""
+        return Permute.apply(self, order)
+
+    def view(self, *shape: int) -> Tensor:
+        """Returns a new tensor with the same data but different shape."""
+        shape_tensor = tensor(list(shape), backend=self.backend)
+        return View.apply(self, shape_tensor)
+
+    def zero_grad_(self) -> None:
+        """Sets the gradient to None."""
+        self.grad = None
+
+    def is_close(self, b: TensorLike) -> Tensor:
+        """Element-wise comparison for approximate equality."""
+        return IsClose.apply(self, self._ensure_tensor(b))
+
+    def all(self, dim: Optional[int] = None) -> Tensor:
+        """Returns True if all elements are True, False otherwise."""
+        if dim is not None:
+            return self.backend.mul_reduce(self, dim)
+        else:
+            t1 = self.contiguous().view(int(operators.prod(self.shape)))
+            return self.backend.mul_reduce(t1, 0)
