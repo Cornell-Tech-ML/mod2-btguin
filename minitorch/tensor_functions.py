@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 def wrap_tuple(x: Any) -> tuple:  # type: ignore
-    """Turn a possible value into a tuple"""
+    """Turn a possible value into a tuple."""
     if isinstance(x, tuple):
         return x
     return (x,)
@@ -31,10 +31,12 @@ def wrap_tuple(x: Any) -> tuple:  # type: ignore
 class Function:
     @classmethod
     def _backward(cls, ctx: Context, grad_out: Tensor) -> Tuple[Tensor, ...]:
+        """Perform the backward pass of the function."""
         return wrap_tuple(cls.backward(ctx, grad_out))  # type: ignore
 
     @classmethod
     def _forward(cls, ctx: Context, *inps: Tensor) -> Tensor:
+        """Perform the forward pass of the function."""
         return cls.forward(ctx, *inps)  # type: ignore
 
     @classmethod
@@ -63,24 +65,124 @@ class Function:
         return minitorch.Tensor(c._tensor, back, backend=c.backend)
 
 
+class Mul(Function):
+    @staticmethod
+    def forward(ctx: Context, a: Tensor, b: Tensor) -> Tensor:
+        """Compute the forward pass for multiplication."""
+        # ASSIGN2_3
+        ctx.save_for_backward(a, b)
+        return a.f.mul_zip(a, b)
+        # END ASSIGN2_3
+
+    @staticmethod
+    def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, Tensor]:
+        """Compute the backward pass for multiplication."""
+        # ASSIGN2_4
+        a, b = ctx.saved_values
+        return (
+            grad_output.f.mul_zip(b, grad_output),
+            grad_output.f.mul_zip(a, grad_output),
+        )
+        # END ASSIGN2_4
+
+
+class Sigmoid(Function):
+    @staticmethod
+    def forward(ctx: Context, t1: Tensor) -> Tensor:
+        """Compute the forward pass for sigmoid activation."""
+        # ASSIGN2_3
+        out = t1.f.sigmoid_map(t1)
+        ctx.save_for_backward(out)
+        return out
+        # END ASSIGN2_3
+
+    @staticmethod
+    def backward(ctx: Context, grad_output: Tensor) -> Tensor:
+        """Compute the backward pass for sigmoid activation."""
+        # ASSIGN2_4
+        sigma: Tensor = ctx.saved_values[0]
+        return sigma * (-sigma + 1.0) * grad_output
+        # END ASSIGN2_4
+
+
+class ReLU(Function):
+    @staticmethod
+    def forward(ctx: Context, t1: Tensor) -> Tensor:
+        """Compute the forward pass for ReLU activation."""
+        # ASSIGN2_3
+        ctx.save_for_backward(t1)
+        return t1.f.relu_map(t1)
+        # END ASSIGN2_3
+
+    @staticmethod
+    def backward(ctx: Context, grad_output: Tensor) -> Tensor:
+        """Compute the backward pass for ReLU activation."""
+        # ASSIGN2_4
+        (a,) = ctx.saved_values
+        return grad_output.f.relu_back_zip(a, grad_output)
+        # END ASSIGN2_4
+
+
+class Log(Function):
+    @staticmethod
+    def forward(ctx: Context, t1: Tensor) -> Tensor:
+        """Compute the forward pass for logarithm."""
+        # ASSIGN2.3
+        ctx.save_for_backward(t1)
+        out = t1.f.log_map(t1)
+        return out
+        # END ASSIGN2.3
+
+    @staticmethod
+    def backward(ctx: Context, grad_output: Tensor) -> Tensor:
+        """Compute the backward pass for logarithm."""
+        # ASSIGN2.4
+        (a,) = ctx.saved_values
+        return grad_output.f.log_back_zip(a, grad_output)
+        # END ASSIGN2.4
+
+
+class Exp(Function):
+    @staticmethod
+    def forward(ctx: Context, t1: Tensor) -> Tensor:
+        """Compute the forward pass for exponential function."""
+        # ASSIGN2.3
+        out = t1.f.exp_map(t1)
+        ctx.save_for_backward(out)
+        return out
+        # END ASSIGN2.3
+
+    @staticmethod
+    def backward(ctx: Context, grad_output: Tensor) -> Tensor:
+        """Compute the backward pass for exponential function."""
+        # ASSIGN2.4
+        (a,) = ctx.saved_values
+        return grad_output.f.mul_zip(a, grad_output)
+        # END ASSIGN2.4
+
+
 class Neg(Function):
     @staticmethod
     def forward(ctx: Context, t1: Tensor) -> Tensor:
+        """Compute the forward pass for negation."""
         return t1.f.neg_map(t1)
 
     @staticmethod
     def backward(ctx: Context, grad_output: Tensor) -> Tensor:
+        """Compute the backward pass for negation."""
         return grad_output.f.neg_map(grad_output)
 
 
 class Inv(Function):
     @staticmethod
     def forward(ctx: Context, t1: Tensor) -> Tensor:
+        """Compute the forward pass for inversion."""
         ctx.save_for_backward(t1)
         return t1.f.inv_map(t1)
 
     @staticmethod
     def backward(ctx: Context, grad_output: Tensor) -> Tensor:
+        """Compute the backward pass for inversion."""
         (t1,) = ctx.saved_values
         return grad_output.f.inv_back_zip(t1, grad_output)
 
@@ -88,29 +190,119 @@ class Inv(Function):
 class Add(Function):
     @staticmethod
     def forward(ctx: Context, t1: Tensor, t2: Tensor) -> Tensor:
+        """Compute the forward pass for addition."""
         return t1.f.add_zip(t1, t2)
 
     @staticmethod
     def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, Tensor]:
+        """Compute the backward pass for addition."""
         return grad_output, grad_output
 
 
 class All(Function):
     @staticmethod
     def forward(ctx: Context, a: Tensor, dim: Tensor) -> Tensor:
-        """Return 1 if all are true"""
+        """Return 1 if all are true."""
         if dim is not None:
             return a.f.mul_reduce(a, int(dim.item()))
         else:
             return a.f.mul_reduce(a.contiguous().view(int(operators.prod(a.shape))), 0)
 
+    # TODO: Implement for Task 2.3.
 
-# TODO: Implement for Task 2.3.
+
+class Sum(Function):
+    @staticmethod
+    def forward(ctx: Context, a: Tensor, dim: Tensor) -> Tensor:
+        """Compute the forward pass for summation."""
+        ctx.save_for_backward(a.shape, dim)
+        return a.f.add_reduce(a, int(dim.item()))
+
+    @staticmethod
+    def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, float]:
+        """Compute the backward pass for summation."""
+        a_shape, dim = ctx.saved_values
+        return grad_output, 0.0
+
+
+class LT(Function):
+    @staticmethod
+    def forward(ctx: Context, a: Tensor, b: Tensor) -> Tensor:
+        """Compute the forward pass for less than comparison."""
+        # ASSIGN2.3
+        ctx.save_for_backward(a.shape, b.shape)
+        return a.f.lt_zip(a, b)
+        # END ASSIGN2.3
+
+    @staticmethod
+    def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, Tensor]:
+        """Compute the backward pass for less than comparison."""
+        # ASSIGN2.4
+        a_shape, b_shape = ctx.saved_values
+        return zeros(a_shape), zeros(b_shape)
+        # END ASSIGN2.4
+
+
+class EQ(Function):
+    @staticmethod
+    def forward(ctx: Context, a: Tensor, b: Tensor) -> Tensor:
+        """Compute the forward pass for equality comparison."""
+        # ASSIGN2.3
+        ctx.save_for_backward(a.shape, b.shape)
+        return a.f.eq_zip(a, b)
+        # END ASSIGN2.3
+
+    @staticmethod
+    def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, Tensor]:
+        """Compute the backward pass for equality comparison."""
+        # ASSIGN2.4
+        a_shape, b_shape = ctx.saved_values
+        return zeros(a_shape), zeros(b_shape)
+        # END ASSIGN2.4
+
+
+class IsClose(Function):
+    @staticmethod
+    def forward(ctx: Context, a: Tensor, b: Tensor) -> Tensor:
+        """Compute the forward pass for is close comparison."""
+        # ASSIGN2.3
+        return a.f.is_close_zip(a, b)
+
+    # Backward method is not defined for IsClose
+
+
+class Permute(Function):
+    @staticmethod
+    def forward(ctx: Context, a: Tensor, order: Tensor) -> Tensor:
+        """Compute the forward pass for permutation."""
+        # ASSIGN2.3
+        print(f"Built-in int: {int}")
+        print(f"a._tensor.permute is callable: {callable(a._tensor.permute)}")
+        print(f"Order tensor: {order}")
+
+        ctx.save_for_backward(order)
+        return a._new(a._tensor.permute(*[int(order[i]) for i in range(order.size)]))
+        # END ASSIGN2.3
+
+    @staticmethod
+    def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, float]:
+        """Compute the backward pass for permutation."""
+        # ASSIGN2.4
+        order: Tensor = ctx.saved_values[0]
+        order2: List[int] = [
+            a[0]
+            for a in sorted(
+                enumerate([order[i] for i in range(order.size)]), key=lambda a: a[1]
+            )
+        ]
+        return grad_output._new(grad_output._tensor.permute(*order2)), 0.0
+        # END ASSIGN2.4
 
 
 class View(Function):
     @staticmethod
     def forward(ctx: Context, a: Tensor, shape: Tensor) -> Tensor:
+        """Compute the forward pass for view operation."""
         ctx.save_for_backward(a.shape)
         assert a._tensor.is_contiguous(), "Must be contiguous to view"
         shape2 = [int(shape[i]) for i in range(shape.size)]
@@ -133,12 +325,12 @@ class View(Function):
 class Copy(Function):
     @staticmethod
     def forward(ctx: Context, a: Tensor) -> Tensor:
-        """Id function makes contiguous"""
+        """Compute the forward pass for copy operation."""
         return a.f.id_map(a)
 
     @staticmethod
     def backward(ctx: Context, grad_output: Tensor) -> Tensor:
-        """Undo"""
+        """Compute the backward pass for copy operation."""
         return grad_output
 
 
@@ -167,18 +359,7 @@ class MatMul(Function):
 
 # Helpers for Constructing tensors
 def zeros(shape: UserShape, backend: TensorBackend = SimpleBackend) -> Tensor:
-    """Produce a zero tensor of size `shape`.
-
-    Args:
-    ----
-        shape : shape of tensor
-        backend : tensor backend
-
-    Returns:
-    -------
-        new tensor
-
-    """
+    """Produce a zero tensor of size `shape`."""
     return minitorch.Tensor.make(
         [0.0] * int(operators.prod(shape)), shape, backend=backend
     )
@@ -189,19 +370,7 @@ def rand(
     backend: TensorBackend = SimpleBackend,
     requires_grad: bool = False,
 ) -> Tensor:
-    """Produce a random tensor of size `shape`.
-
-    Args:
-    ----
-        shape : shape of tensor
-        backend : tensor backend
-        requires_grad : turn on autodifferentiation
-
-    Returns:
-    -------
-        :class:`Tensor` : new tensor
-
-    """
+    """Produce a random tensor of size `shape`."""
     vals = [random.random() for _ in range(int(operators.prod(shape)))]
     tensor = minitorch.Tensor.make(vals, shape, backend=backend)
     tensor.requires_grad_(requires_grad)
@@ -214,20 +383,7 @@ def _tensor(
     backend: TensorBackend = SimpleBackend,
     requires_grad: bool = False,
 ) -> Tensor:
-    """Produce a tensor with data ls and shape `shape`.
-
-    Args:
-    ----
-        ls: data for tensor
-        shape: shape of tensor
-        backend: tensor backend
-        requires_grad: turn on autodifferentiation
-
-    Returns:
-    -------
-        new tensor
-
-    """
+    """Produce a tensor with data ls and shape `shape`."""
     tensor = minitorch.Tensor.make(ls, shape, backend=backend)
     tensor.requires_grad_(requires_grad)
     return tensor
@@ -236,19 +392,7 @@ def _tensor(
 def tensor(
     ls: Any, backend: TensorBackend = SimpleBackend, requires_grad: bool = False
 ) -> Tensor:
-    """Produce a tensor with data and shape from ls
-
-    Args:
-    ----
-        ls: data for tensor
-        backend : tensor backend
-        requires_grad : turn on autodifferentiation
-
-    Returns:
-    -------
-        :class:`Tensor` : new tensor
-
-    """
+    """Produce a tensor with data and shape from ls."""
 
     def shape(ls: Any) -> List[int]:
         if isinstance(ls, (list, tuple)):
@@ -273,6 +417,7 @@ def tensor(
 def grad_central_difference(
     f: Any, *vals: Tensor, arg: int = 0, epsilon: float = 1e-6, ind: UserIndex
 ) -> float:
+    """Compute the central difference gradient for a tensor."""
     x = vals[arg]
     up = zeros(x.shape)
     up[ind] = epsilon
